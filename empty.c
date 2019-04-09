@@ -41,6 +41,7 @@
 
 /* Driver Header files */
 #include <ti/drivers/GPIO.h>
+#include <ti/drivers/ADC.h>
 // #include <ti/drivers/I2C.h>
 // #include <ti/drivers/SPI.h>
 // #include <ti/drivers/UART.h>
@@ -49,6 +50,54 @@
 /* Board Header file */
 #include "Board.h"
 
+/* ADC sample count */
+#define ADC_SAMPLE_COUNT  (100)
+
+uint16_t adcValue1[ADC_SAMPLE_COUNT];
+uint32_t adcValue1MicroVolt[ADC_SAMPLE_COUNT];
+
+/*
+ *  ======== threadFxn1 ========
+ *  Open a ADC handle and get an array of sampling results after
+ *  calling several conversions.
+ */
+void *threadFxn1(void *arg0)
+{
+    uint16_t     i;
+    ADC_Handle   adc;
+    ADC_Params   params;
+    int_fast16_t res;
+
+    ADC_Params_init(&params);
+    adc = ADC_open(Board_ADC1, &params);
+
+    if (adc == NULL) {
+        //Display_printf(display, 0, 0, "Error initializing ADC1\n");
+        while (1);
+    }
+
+    for (i = 0; i < ADC_SAMPLE_COUNT; i++) {
+        res = ADC_convert(adc, &adcValue1[i]);
+
+        if (res == ADC_STATUS_SUCCESS) {
+
+            adcValue1MicroVolt[i] = ADC_convertRawToMicroVolts(adc, adcValue1[i]);
+
+            /*Display_printf(display, 0, 0, "ADC1 raw result (%d): %d\n", i,
+                           adcValue1[i]);
+            Display_printf(display, 0, 0, "ADC1 convert result (%d): %d uV\n", i,
+                adcValue1MicroVolt[i]);*/
+        }
+        else {
+            //Display_printf(display, 0, 0, "ADC1 convert failed (%d)\n", i);
+        }
+	sleep(6);
+    }
+
+    ADC_close(adc);
+
+    return (NULL);
+}
 /*
  *  ======== mainThread ========
  */
