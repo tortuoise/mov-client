@@ -39,9 +39,13 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/* POSIX Header files */
+#include <pthread.h>
+
 /* Driver Header files */
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/ADC.h>
+#include <ti/display/Display.h>
 // #include <ti/drivers/I2C.h>
 // #include <ti/drivers/SPI.h>
 // #include <ti/drivers/UART.h>
@@ -56,6 +60,9 @@
 uint16_t adcValue1[ADC_SAMPLE_COUNT];
 uint32_t adcValue1MicroVolt[ADC_SAMPLE_COUNT];
 
+#define THREADSTACKSIZE   (768)
+
+static Display_Handle display;
 /*
  *  ======== threadFxn1 ========
  *  Open a ADC handle and get an array of sampling results after
@@ -72,7 +79,7 @@ void *threadFxn1(void *arg0)
     adc = ADC_open(Board_ADC1, &params);
 
     if (adc == NULL) {
-        //Display_printf(display, 0, 0, "Error initializing ADC1\n");
+        Display_printf(display, 0, 0, "Error initializing ADC1\n");
         while (1);
     }
 
@@ -83,13 +90,14 @@ void *threadFxn1(void *arg0)
 
             adcValue1MicroVolt[i] = ADC_convertRawToMicroVolts(adc, adcValue1[i]);
 
-            /*Display_printf(display, 0, 0, "ADC1 raw result (%d): %d\n", i,
+            Display_printf(display, 0, 0, "ADC1 raw result (%d): %d\n", i,
                            adcValue1[i]);
             Display_printf(display, 0, 0, "ADC1 convert result (%d): %d uV\n", i,
-                adcValue1MicroVolt[i]);*/
+                adcValue1MicroVolt[i]);
+		GPIO_toggle(Board_GPIO_LED0);
         }
         else {
-            //Display_printf(display, 0, 0, "ADC1 convert failed (%d)\n", i);
+            Display_printf(display, 0, 0, "ADC1 convert failed (%d)\n", i);
         }
 	sleep(6);
     }
@@ -106,21 +114,69 @@ void *mainThread(void *arg0)
     /* 1 second delay */
     uint32_t time = 1;
 
+    pthread_t           thread1;
+    pthread_attr_t      attrs;
+    struct sched_param  priParam;
+    int                 retc;
+    int                 detachState;
+
+    /* Call driver init functions */
+
     /* Call driver init functions */
     GPIO_init();
+    Display_init();
+    ADC_init();
     // I2C_init();
     // SPI_init();
     // UART_init();
     // Watchdog_init();
 
+    /* Open the display for output */
+    display = Display_open(Display_Type_UART, NULL);
+    if (display == NULL) {
+        /* Failed to open display driver */
+        while (1);
+    }
+
+    Display_printf(display, 0, 0, "Starting locomov \n");
     /* Configure the LED pin */
     GPIO_setConfig(Board_GPIO_LED0, GPIO_CFG_OUT_STD | GPIO_CFG_OUT_LOW);
+    GPIO_toggle(Board_GPIO_LED0);
+    GPIO_toggle(Board_GPIO_LED0);
 
     /* Turn on user LED */
-    GPIO_write(Board_GPIO_LED0, Board_GPIO_LED_ON);
+    GPIO_write(Board_GPIO_LED0, Board_GPIO_LED_OFF);
 
-    while (1) {
+    /* Create application threads */
+    pthread_attr_init(&attrs);
+
+    detachState = PTHREAD_CREATE_DETACHED;
+    /* Set priority and stack size attributes */
+    retc = pthread_attr_setdetachstate(&attrs, detachState);
+    if (retc != 0) {
+        /* pthread_attr_setdetachstate() failed */
+        while (1);
+    }
+
+    retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
+    if (retc != 0) {
+        /* pthread_attr_setstacksize() failed */
+        while (1);
+    }
+
+    priParam.sched_priority = 1;
+    pthread_attr_setschedparam(&attrs, &priParam);
+
+    /* Create threadFxn1 thread */
+    retc = pthread_create(&thread1, &attrs, threadFxn1, (void* )0);
+    if (retc != 0) {
+        /* pthread_create() failed */
+        while (1);
+    }
+
+    /*while (1) {
         sleep(time);
         GPIO_toggle(Board_GPIO_LED0);
-    }
+    }*/
+    return (NULL);
 }
