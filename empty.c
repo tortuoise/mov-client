@@ -47,14 +47,15 @@
 #include <ti/drivers/ADC.h>
 #include <ti/display/Display.h>
 // #include <ti/drivers/I2C.h>
-// #include <ti/drivers/SPI.h>
-// #include <ti/drivers/UART.h>
+#include <ti/drivers/SPI.h>
+#include <ti/drivers/UART.h>
 // #include <ti/drivers/Watchdog.h>
 #include <ti/drivers/net/wifi/simplelink.h>
 
 /* Board Header file */
 #include "Board.h"
 #include "common.h"
+#include "uart_term.h"
 
 /* ADC sample count */
 #define ADC_SAMPLE_COUNT  (100)
@@ -128,6 +129,7 @@ void *mainThread(void *arg0)
 {
     /* 1 second delay */
     uint32_t time = 1;
+    int32_t             status = 0;
 
     pthread_t           thread1;
     pthread_attr_t      attrs;
@@ -142,7 +144,7 @@ void *mainThread(void *arg0)
     Display_init();
     ADC_init();
     // I2C_init();
-    // SPI_init();
+    SPI_init();
     // UART_init();
     // Watchdog_init();
 
@@ -156,11 +158,21 @@ void *mainThread(void *arg0)
     Display_printf(display, 0, 0, "Starting locomov \n");
     /* Configure the LED pin */
     GPIO_setConfig(Board_GPIO_LED0, GPIO_CFG_OUT_STD | GPIO_CFG_OUT_LOW);
-    GPIO_toggle(Board_GPIO_LED0);
-    GPIO_toggle(Board_GPIO_LED0);
-
     /* Turn on user LED */
     GPIO_write(Board_GPIO_LED0, Board_GPIO_LED_OFF);
+    sleep(1);
+    GPIO_toggle(Board_GPIO_LED0);
+    sleep(1);
+    GPIO_toggle(Board_GPIO_LED0);
+
+
+    status = sl_WifiConfig();
+    if(status < 0)
+    {
+        /* Handle Error */
+        UART_PRINT("Power Measurement - Couldn't configure Network Processor - %d\n",status);
+        LOOP_FOREVER();
+    }
 
     /* Create application threads */
     pthread_attr_init(&attrs);
@@ -226,3 +238,245 @@ int32_t wlanConnect(void)
     return(0);
    
 }
+
+//*****************************************************************************
+// SimpleLink Callback Functions
+//*****************************************************************************
+
+void SimpleLinkNetAppRequestMemFreeEventHandler (uint8_t *buffer)
+{
+  // do nothing...
+}
+
+void SimpleLinkNetAppRequestEventHandler(SlNetAppRequest_t *pNetAppRequest,
+                                         SlNetAppResponse_t *pNetAppResponse)
+{
+  // do nothing...
+}
+
+//*****************************************************************************
+//
+//! \brief The Function Handles WLAN Events
+//!
+//! \param[in]  pWlanEvent - Pointer to WLAN Event Info
+//!
+//! \return None
+//!
+//*****************************************************************************
+void SimpleLinkWlanEventHandler(SlWlanEvent_t *pWlanEvent)
+{
+    char syncMsg;
+
+    switch(pWlanEvent->Id)
+    {
+        case SL_WLAN_EVENT_CONNECT:
+        {
+
+            SET_STATUS_BIT(PowerMeasure_CB.slStatus, STATUS_BIT_CONNECTION);
+        }
+        break;
+
+        case SL_WLAN_EVENT_DISCONNECT:
+        {
+            syncMsg = (uint8_t) SL_WLAN_EVENT_DISCONNECT;
+            CLR_STATUS_BIT(PowerMeasure_CB.slStatus, STATUS_BIT_CONNECTION);
+            CLR_STATUS_BIT(PowerMeasure_CB.slStatus, STATUS_BIT_IP_ACQUIRED);
+            //mq_send(PowerMeasure_CB.queue, &syncMsg, 1, 0);
+        }
+        break;
+
+        default:
+        {
+            UART_PRINT("[WLAN EVENT] Unexpected event [0x%x]\n\r",
+                       pWlanEvent->Id);
+        }
+        break;
+    }
+}
+
+//*****************************************************************************
+//
+//! \brief The Function Handles the Fatal errors
+//!
+//! \param[in]  slFatalErrorEvent - Pointer to Fatal Error Event info
+//!
+//! \return None
+//!
+//*****************************************************************************
+void SimpleLinkFatalErrorEventHandler(SlDeviceFatal_t *slFatalErrorEvent)
+{
+    switch (slFatalErrorEvent->Id)
+    {
+        case SL_DEVICE_EVENT_FATAL_DEVICE_ABORT:
+        {
+        UART_PRINT(
+            "[ERROR] - FATAL ERROR: Abort NWP event detected:"
+            " AbortType=%d, AbortData=0x%x\n\r",
+            slFatalErrorEvent->Data.DeviceAssert.Code,
+            slFatalErrorEvent->Data.DeviceAssert.Value);
+        }
+        break;
+
+        case SL_DEVICE_EVENT_FATAL_DRIVER_ABORT:
+        {
+            UART_PRINT("[ERROR] - FATAL ERROR: Driver Abort detected. \n\r");
+        }
+        break;
+
+        case SL_DEVICE_EVENT_FATAL_NO_CMD_ACK:
+        {
+        UART_PRINT(
+            "[ERROR] - FATAL ERROR: No Cmd Ack detected"
+            " [cmd opcode = 0x%x] \n\r",
+            slFatalErrorEvent->Data.NoCmdAck.Code);
+        }
+        break;
+
+        case SL_DEVICE_EVENT_FATAL_SYNC_LOSS:
+        {
+            UART_PRINT("[ERROR] - FATAL ERROR: Sync loss detected n\r");
+        }
+        break;
+
+        case SL_DEVICE_EVENT_FATAL_CMD_TIMEOUT:
+        {
+        UART_PRINT(
+            "[ERROR] - FATAL ERROR: Async event timeout detected"
+            " [event opcode =0x%x]  \n\r",
+            slFatalErrorEvent->Data.CmdTimeout.Code);
+        }
+        break;
+
+        default:
+            UART_PRINT("[ERROR] - FATAL ERROR: "
+                       "Unspecified error detected \n\r");
+        break;
+    }
+}
+
+//*****************************************************************************
+//
+//! \brief This function handles network events such as IP acquisition, IP
+//!           leased, IP released etc.
+//!
+//! \param[in]  pNetAppEvent - Pointer to NetApp Event Info 
+//!
+//! \return None
+//!
+//*****************************************************************************
+void SimpleLinkNetAppEventHandler(SlNetAppEvent_t *pNetAppEvent)
+{
+    char syncMsg;
+    struct timespec ts;
+
+    switch(pNetAppEvent->Id)
+    {
+        case SL_NETAPP_EVENT_IPV4_ACQUIRED:
+        {
+            SET_STATUS_BIT(PowerMeasure_CB.slStatus, STATUS_BIT_IP_ACQUIRED);
+            syncMsg = STATUS_BIT_IP_ACQUIRED;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            //mq_timedsend(PowerMeasure_CB.queue, &syncMsg, 1, 0,&ts);
+            UART_PRINT("[NETAPP EVENT] IP Acquired: IP=%d.%d.%d.%d , "
+            "Gateway=%d.%d.%d.%d\n\r", 
+            SL_IPV4_BYTE(pNetAppEvent->Data.IpAcquiredV4.Ip,3),
+            SL_IPV4_BYTE(pNetAppEvent->Data.IpAcquiredV4.Ip,2),
+            SL_IPV4_BYTE(pNetAppEvent->Data.IpAcquiredV4.Ip,1),
+            SL_IPV4_BYTE(pNetAppEvent->Data.IpAcquiredV4.Ip,0),
+            SL_IPV4_BYTE(pNetAppEvent->Data.IpAcquiredV4.Gateway,3),
+            SL_IPV4_BYTE(pNetAppEvent->Data.IpAcquiredV4.Gateway,2),
+            SL_IPV4_BYTE(pNetAppEvent->Data.IpAcquiredV4.Gateway,1),
+            SL_IPV4_BYTE(pNetAppEvent->Data.IpAcquiredV4.Gateway,0));
+        }
+        break;
+
+        default:
+        {
+            UART_PRINT("[NETAPP EVENT] Unexpected event [0x%x] \n\r",
+                       pNetAppEvent->Id);
+        }
+        break;
+    }
+}
+
+//*****************************************************************************
+//
+//! \brief This function handles HTTP server events
+//!
+//! \param[in]  pServerEvent - Contains the relevant event information
+//! \param[in]    pServerResponse - Should be filled by the user with the
+//!                                      relevant response information
+//!
+//! \return None
+//!
+//****************************************************************************
+void SimpleLinkHttpServerEventHandler(
+    SlNetAppHttpServerEvent_t *pHttpEvent,
+    SlNetAppHttpServerResponse_t *
+    pHttpResponse)
+{
+    // Unused in this application
+}
+
+//*****************************************************************************
+//
+//! \brief This function handles General Events
+//!
+//! \param[in]     pDevEvent - Pointer to General Event Info 
+//!
+//! \return None
+//!
+//*****************************************************************************
+void SimpleLinkGeneralEventHandler(SlDeviceEvent_t *pDevEvent)
+{
+    //
+    // Most of the general errors are not FATAL are are to be handled
+    // appropriately by the application
+    //
+    UART_PRINT("[GENERAL EVENT] - ID=[%d] Sender=[%d]\n\n",
+               pDevEvent->Data.Error.Code,
+               pDevEvent->Data.Error.Source);
+}
+
+//*****************************************************************************
+//
+//! This function handles socket events indication
+//!
+//! \param[in]      pSock - Pointer to Socket Event Info
+//!
+//! \return None
+//!
+//*****************************************************************************
+void SimpleLinkSockEventHandler(SlSockEvent_t *pSock)
+{
+    //
+    // This application doesn't work w/ socket - Events are not expected
+    //
+    switch( pSock->Event )
+    {
+        case SL_SOCKET_TX_FAILED_EVENT:
+            switch( pSock->SocketAsyncEvent.SockTxFailData.Status)
+            {
+                case SL_ERROR_BSD_ECLOSE:
+                    UART_PRINT("[SOCK ERROR] - close socket (%d) operation "
+                                "failed to transmit all queued packets\n\r",
+                                    pSock->SocketAsyncEvent.SockTxFailData.Sd);
+                    break;
+                default: 
+            UART_PRINT(
+                "[SOCK ERROR] - TX FAILED  :  socket %d , reason "
+                                "(%d) \n\n",
+                pSock->SocketAsyncEvent.SockTxFailData.Sd,
+                pSock->SocketAsyncEvent.SockTxFailData.Status);
+                  break;
+            }
+            break;
+
+        default:
+            UART_PRINT("[SOCK EVENT] - "
+                       "Unexpected Event [%x0x]\n\n",pSock->Event);
+          break;
+    }
+
+}
+
