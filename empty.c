@@ -50,19 +50,34 @@
 // #include <ti/drivers/SPI.h>
 // #include <ti/drivers/UART.h>
 // #include <ti/drivers/Watchdog.h>
+#include <ti/drivers/net/wifi/simplelink.h>
 
 /* Board Header file */
 #include "Board.h"
+#include "common.h"
 
 /* ADC sample count */
 #define ADC_SAMPLE_COUNT  (100)
 
-uint16_t adcValue1[ADC_SAMPLE_COUNT];
-uint32_t adcValue1MicroVolt[ADC_SAMPLE_COUNT];
-
+#define FRAME_LENGTH                (1000)
 #define THREADSTACKSIZE   (768)
 
+/* Control block definition */
+typedef struct _PowerMeasure_ControlBlock_t_
+{
+    uint32_t        slStatus;    //SimpleLink Status
+    //mqd_t           queue;
+    //sem_t           sem;
+    signed char     frameData[FRAME_LENGTH];
+    SlSockAddrIn_t  ipV4Addr;
+}PowerMeasure_ControlBlock;
+
+int32_t wlanConnect(void);
+
+uint16_t adcValue1[ADC_SAMPLE_COUNT];
+uint32_t adcValue1MicroVolt[ADC_SAMPLE_COUNT];
 static Display_Handle display;
+PowerMeasure_ControlBlock   PowerMeasure_CB;
 /*
  *  ======== threadFxn1 ========
  *  Open a ADC handle and get an array of sampling results after
@@ -179,4 +194,35 @@ void *mainThread(void *arg0)
         GPIO_toggle(Board_GPIO_LED0);
     }*/
     return (NULL);
+}
+
+int32_t wlanConnect(void)
+{
+    SlWlanSecParams_t secParams = {0};
+    int32_t status = 0;
+
+    secParams.Key = (signed char*)SECURITY_KEY;
+    secParams.KeyLen = strlen(SECURITY_KEY);
+    secParams.Type = SECURITY_TYPE;
+
+    status = sl_WlanConnect((signed char*)SSID_NAME, strlen(
+                                SSID_NAME), 0, &secParams, 0);
+    ASSERT_ON_ERROR(status);
+    
+    UART_PRINT("Trying to connect to AP : %s\n\r", SSID_NAME);
+
+    // Wait for WLAN Event
+    while((!IS_CONNECTED(PowerMeasure_CB.slStatus)) ||
+          (!IS_IP_ACQUIRED(PowerMeasure_CB.slStatus)))
+    { 
+        /* Turn on user LED */
+        GPIO_write(Board_GPIO_LED0, Board_GPIO_LED_ON);
+        usleep(50000);
+        /* Turn off user LED */
+        GPIO_write(Board_GPIO_LED0, Board_GPIO_LED_OFF);
+        usleep(50000);
+    }
+
+    return(0);
+   
 }
