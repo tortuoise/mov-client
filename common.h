@@ -75,10 +75,27 @@ extern "C"
     { \
         if(error_code < 0) \
         { \
-            ERR_PRINT(error_code); \
+            Display_printf(display, 0, 0, "Error code %d \n", error_code); \
             return error_code; \
         } \
     }
+
+#define ASSERT_ON_ERROR1(ret, errortype)\
+        {\
+            if(ret < 0)\
+            {\
+                SHOW_WARNING(ret, errortype);\
+                return -1;\
+            }\
+        }
+#define SHOW_WARNING(ret, errortype)        Display_printf(display, 0, 0, \
+        "\n\r[line:%d, error code:%d] %s\n\r", __LINE__, ret, errortype);
+
+typedef union
+{
+    uint32_t ipv4;          /* Ipv4 Address */
+    uint8_t ipv6[16];       /* Ipv6 Address */
+}ip_t;
 
 // Status bits - These are used to set/reset the corresponding bits in
 // given variable

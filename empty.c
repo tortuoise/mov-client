@@ -48,20 +48,27 @@
 #include <ti/display/Display.h>
 // #include <ti/drivers/I2C.h>
 #include <ti/drivers/SPI.h>
-#include <ti/drivers/UART.h>
+//#include <ti/drivers/UART.h>
 // #include <ti/drivers/Watchdog.h>
 #include <ti/drivers/net/wifi/simplelink.h>
 
 /* Board Header file */
 #include "Board.h"
 #include "common.h"
-#include "uart_term.h"
+#include "empty.h"
+//#include "uart_term.h"
 
 /* ADC sample count */
 #define ADC_SAMPLE_COUNT  (100)
 
+/* Stack size in bytes */
+#define TASKSTACKSIZE               (4096)       
+#define SPAWN_TASK_PRIORITY         (9)
+#define SL_STOP_TIMEOUT             (200)
+
 #define FRAME_LENGTH                (1000)
 #define THREADSTACKSIZE   (768)
+#define DEST_IP_ADDR                SL_IPV4_VAL(192,168,1,100)
 
 /* Control block definition */
 typedef struct _PowerMeasure_ControlBlock_t_
@@ -77,7 +84,6 @@ int32_t wlanConnect(void);
 
 uint16_t adcValue1[ADC_SAMPLE_COUNT];
 uint32_t adcValue1MicroVolt[ADC_SAMPLE_COUNT];
-static Display_Handle display;
 PowerMeasure_ControlBlock   PowerMeasure_CB;
 /*
  *  ======== threadFxn1 ========
@@ -90,6 +96,7 @@ void *threadFxn1(void *arg0)
     ADC_Handle   adc;
     ADC_Params   params;
     int_fast16_t res;
+    int32_t             status = 0;
 
     ADC_Params_init(&params);
     adc = ADC_open(Board_ADC1, &params);
@@ -98,6 +105,31 @@ void *threadFxn1(void *arg0)
         Display_printf(display, 0, 0, "Error initializing ADC1\n");
         while (1);
     }
+
+    /* Turn NWP on */
+    status = sl_Start(NULL, NULL, NULL);
+    if(status < 0)
+    {
+        /* Handle Error */
+        //Display_printf(display,0,0,"sl_start failed - %d\n",status);
+        Display_printf(display, 0, 0, "sl_start failed - %d\n",status);
+        LOOP_FOREVER();
+    }
+
+    /* Unregister mDNS services */
+    status = sl_NetAppMDNSUnRegisterService(0, 0, 0);
+    if(status < 0)
+    {
+        /* Handle Error */
+        //Display_printf(display,0,0,"sl_NetAppMDNSUnRegisterService failed - %d\n",status);
+        Display_printf(display, 0, 0, "sl_NetAppMDNSUnRegisterService failed - %d\n",status);
+        LOOP_FOREVER();
+    }
+
+    status = sl_Start(0,0,0);
+    status = wlanConnect();
+
+    int32_t ret = 0;
 
     for (i = 0; i < ADC_SAMPLE_COUNT; i++) {
         res = ADC_convert(adc, &adcValue1[i]);
@@ -115,6 +147,15 @@ void *threadFxn1(void *arg0)
         else {
             Display_printf(display, 0, 0, "ADC1 convert failed (%d)\n", i);
         }
+        ip_t dest;
+        memset(&dest.ipv4, 0x0, sizeof(dest.ipv4));
+        dest.ipv4 = DEST_IP_ADDR;
+        Display_printf(display, 0, 0, "Calling TCPClient w %d \n", DEST_IP_ADDR);
+        Display_printf(display, 0, 0, "Calling TCPClient w %d \n", dest.ipv4);
+        ret = TCPClient(1 /*nb*/, 38979, dest, 0 /*ipv6*/, 1, TRUE);
+        if (ret < 1) {
+            Display_printf(display, 0, 0, "TCPClient failed");
+        } 
 	sleep(6);
     }
 
@@ -131,13 +172,13 @@ void *mainThread(void *arg0)
     uint32_t time = 1;
     int32_t             status = 0;
 
+    pthread_t           spawn_thread = (pthread_t)NULL;
     pthread_t           thread1;
+    pthread_attr_t      pAttrs_spawn;
     pthread_attr_t      attrs;
     struct sched_param  priParam;
     int                 retc;
     int                 detachState;
-
-    /* Call driver init functions */
 
     /* Call driver init functions */
     GPIO_init();
@@ -165,12 +206,28 @@ void *mainThread(void *arg0)
     sleep(1);
     GPIO_toggle(Board_GPIO_LED0);
 
+    /* Start the SimpleLink Host */
+    pthread_attr_init(&pAttrs_spawn);
+    priParam.sched_priority = SPAWN_TASK_PRIORITY;
+    status = pthread_attr_setschedparam(&pAttrs_spawn, &priParam);
+    status |= pthread_attr_setstacksize(&pAttrs_spawn, TASKSTACKSIZE);
 
+    status = pthread_create(&spawn_thread, &pAttrs_spawn, sl_Task, NULL);
+
+    if(status != 0)
+    {
+        //Display_printf(display,0,0,"could not create simpleLink task\n\r");
+        Display_printf(display, 0, 0, "could not create simpleLink task\n\r");
+        LOOP_FOREVER();
+    }
+
+    Display_printf(display, 0, 0, "sl_WifiConfig \n");
     status = sl_WifiConfig();
     if(status < 0)
     {
         /* Handle Error */
-        UART_PRINT("Power Measurement - Couldn't configure Network Processor - %d\n",status);
+        //Display_printf(display,0,0,"locomov - Couldn't configure Network Processor - %d\n",status);
+        Display_printf(display, 0, 0, "locomov - Couldn't configure Network Processor - %d\n",status);
         LOOP_FOREVER();
     }
 
@@ -194,6 +251,7 @@ void *mainThread(void *arg0)
     priParam.sched_priority = 1;
     pthread_attr_setschedparam(&attrs, &priParam);
 
+    Display_printf(display, 0, 0, "Starting adc thread \n");
     /* Create threadFxn1 thread */
     retc = pthread_create(&thread1, &attrs, threadFxn1, (void* )0);
     if (retc != 0) {
@@ -205,6 +263,7 @@ void *mainThread(void *arg0)
         sleep(time);
         GPIO_toggle(Board_GPIO_LED0);
     }*/
+    Display_printf(display, 0, 0, "Returning \n");
     return (NULL);
 }
 
@@ -221,7 +280,7 @@ int32_t wlanConnect(void)
                                 SSID_NAME), 0, &secParams, 0);
     ASSERT_ON_ERROR(status);
     
-    UART_PRINT("Trying to connect to AP : %s\n\r", SSID_NAME);
+    Display_printf(display, 0, 0, "Trying to connect to AP : %s\n\r", SSID_NAME);
 
     // Wait for WLAN Event
     while((!IS_CONNECTED(PowerMeasure_CB.slStatus)) ||
@@ -287,7 +346,7 @@ void SimpleLinkWlanEventHandler(SlWlanEvent_t *pWlanEvent)
 
         default:
         {
-            UART_PRINT("[WLAN EVENT] Unexpected event [0x%x]\n\r",
+            Display_printf(display,0,0,"[WLAN EVENT] Unexpected event [0x%x]\n\r",
                        pWlanEvent->Id);
         }
         break;
@@ -309,7 +368,7 @@ void SimpleLinkFatalErrorEventHandler(SlDeviceFatal_t *slFatalErrorEvent)
     {
         case SL_DEVICE_EVENT_FATAL_DEVICE_ABORT:
         {
-        UART_PRINT(
+        Display_printf(display,0,0,
             "[ERROR] - FATAL ERROR: Abort NWP event detected:"
             " AbortType=%d, AbortData=0x%x\n\r",
             slFatalErrorEvent->Data.DeviceAssert.Code,
@@ -319,13 +378,13 @@ void SimpleLinkFatalErrorEventHandler(SlDeviceFatal_t *slFatalErrorEvent)
 
         case SL_DEVICE_EVENT_FATAL_DRIVER_ABORT:
         {
-            UART_PRINT("[ERROR] - FATAL ERROR: Driver Abort detected. \n\r");
+            Display_printf(display,0,0,"[ERROR] - FATAL ERROR: Driver Abort detected. \n\r");
         }
         break;
 
         case SL_DEVICE_EVENT_FATAL_NO_CMD_ACK:
         {
-        UART_PRINT(
+        Display_printf(display,0,0,
             "[ERROR] - FATAL ERROR: No Cmd Ack detected"
             " [cmd opcode = 0x%x] \n\r",
             slFatalErrorEvent->Data.NoCmdAck.Code);
@@ -334,13 +393,13 @@ void SimpleLinkFatalErrorEventHandler(SlDeviceFatal_t *slFatalErrorEvent)
 
         case SL_DEVICE_EVENT_FATAL_SYNC_LOSS:
         {
-            UART_PRINT("[ERROR] - FATAL ERROR: Sync loss detected n\r");
+            Display_printf(display,0,0,"[ERROR] - FATAL ERROR: Sync loss detected n\r");
         }
         break;
 
         case SL_DEVICE_EVENT_FATAL_CMD_TIMEOUT:
         {
-        UART_PRINT(
+        Display_printf(display,0,0,
             "[ERROR] - FATAL ERROR: Async event timeout detected"
             " [event opcode =0x%x]  \n\r",
             slFatalErrorEvent->Data.CmdTimeout.Code);
@@ -348,7 +407,7 @@ void SimpleLinkFatalErrorEventHandler(SlDeviceFatal_t *slFatalErrorEvent)
         break;
 
         default:
-            UART_PRINT("[ERROR] - FATAL ERROR: "
+            Display_printf(display,0,0,"[ERROR] - FATAL ERROR: "
                        "Unspecified error detected \n\r");
         break;
     }
@@ -377,7 +436,7 @@ void SimpleLinkNetAppEventHandler(SlNetAppEvent_t *pNetAppEvent)
             syncMsg = STATUS_BIT_IP_ACQUIRED;
             clock_gettime(CLOCK_REALTIME, &ts);
             //mq_timedsend(PowerMeasure_CB.queue, &syncMsg, 1, 0,&ts);
-            UART_PRINT("[NETAPP EVENT] IP Acquired: IP=%d.%d.%d.%d , "
+            Display_printf(display,0,0,"[NETAPP EVENT] IP Acquired: IP=%d.%d.%d.%d , "
             "Gateway=%d.%d.%d.%d\n\r", 
             SL_IPV4_BYTE(pNetAppEvent->Data.IpAcquiredV4.Ip,3),
             SL_IPV4_BYTE(pNetAppEvent->Data.IpAcquiredV4.Ip,2),
@@ -392,7 +451,7 @@ void SimpleLinkNetAppEventHandler(SlNetAppEvent_t *pNetAppEvent)
 
         default:
         {
-            UART_PRINT("[NETAPP EVENT] Unexpected event [0x%x] \n\r",
+            Display_printf(display,0,0,"[NETAPP EVENT] Unexpected event [0x%x] \n\r",
                        pNetAppEvent->Id);
         }
         break;
@@ -433,7 +492,7 @@ void SimpleLinkGeneralEventHandler(SlDeviceEvent_t *pDevEvent)
     // Most of the general errors are not FATAL are are to be handled
     // appropriately by the application
     //
-    UART_PRINT("[GENERAL EVENT] - ID=[%d] Sender=[%d]\n\n",
+    Display_printf(display,0,0,"[GENERAL EVENT] - ID=[%d] Sender=[%d]\n\n",
                pDevEvent->Data.Error.Code,
                pDevEvent->Data.Error.Source);
 }
@@ -458,12 +517,12 @@ void SimpleLinkSockEventHandler(SlSockEvent_t *pSock)
             switch( pSock->SocketAsyncEvent.SockTxFailData.Status)
             {
                 case SL_ERROR_BSD_ECLOSE:
-                    UART_PRINT("[SOCK ERROR] - close socket (%d) operation "
+                    Display_printf(display,0,0,"[SOCK ERROR] - close socket (%d) operation "
                                 "failed to transmit all queued packets\n\r",
                                     pSock->SocketAsyncEvent.SockTxFailData.Sd);
                     break;
                 default: 
-            UART_PRINT(
+            Display_printf(display,0,0,
                 "[SOCK ERROR] - TX FAILED  :  socket %d , reason "
                                 "(%d) \n\n",
                 pSock->SocketAsyncEvent.SockTxFailData.Sd,
@@ -473,7 +532,7 @@ void SimpleLinkSockEventHandler(SlSockEvent_t *pSock)
             break;
 
         default:
-            UART_PRINT("[SOCK EVENT] - "
+            Display_printf(display,0,0,"[SOCK EVENT] - "
                        "Unexpected Event [%x0x]\n\n",pSock->Event);
           break;
     }
