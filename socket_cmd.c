@@ -32,6 +32,12 @@ int32_t TCPClient(uint8_t nb,
                   uint32_t numberOfPackets,
                   uint8_t tx);
 
+int32_t TCPClientTest(uint8_t nb,
+                  uint16_t portNumber,
+                  ip_t ipAddress,
+                  uint8_t ipv6,
+                  uint32_t numberOfPackets,
+                  uint8_t tx);
 typedef union
 {
     SlSockAddrIn6_t in6;       /* Socket info for Ipv6 */
@@ -74,7 +80,6 @@ int32_t TCPClient(uint8_t nb,
                   uint32_t numberOfPackets,
                   uint8_t tx)
 {
-    Display_printf(display, 0, 0, "Starting send");
     int32_t sock;
     int32_t status;
     uint32_t i = 0;
@@ -83,10 +88,8 @@ int32_t TCPClient(uint8_t nb,
     int32_t addrSize;
     sockAddr_t sAddr;
     
-    Display_printf(display, 0, 0, "Starting send");
-    appControlBlock app_CB;
+    UART_PRINT("\r Starting send \n");
 
-    memset(&app_CB.gDataBuffer, 0x0, sizeof(app_CB.gDataBuffer));
     /* clear the global data buffer */
     memset(app_CB.gDataBuffer.nwData, 0x0, MAX_BUF_SIZE);
 
@@ -96,7 +99,7 @@ int32_t TCPClient(uint8_t nb,
         app_CB.gDataBuffer.nwData[i] = (char)(i % 10);
     }
 
-    Display_printf(display, 0, 0, "Filled buffer");
+    UART_PRINT("\r Filled buffer \n");
     if(ipv6)
     {
         sAddr.in6.sin6_family = SL_AF_INET6;
@@ -130,11 +133,21 @@ int32_t TCPClient(uint8_t nb,
         addrSize = sizeof(SlSockAddrIn6_t);
     }
 
+    if (sa == NULL) {
+        UART_PRINT("\r ***sa NULL****\n");
+    }
+    else {
+        UART_PRINT("\r sa !NULL  %d \n", sa->sa_family);
+    }
+    PrintIPAddress(FALSE, (void*)&ipAddress.ipv4);
+    UART_PRINT("\r***Setting up socket****\n");
     /* Get socket descriptor - this would be the
      * socket descriptor for the TCP session.
      */
     sock = sl_Socket(sa->sa_family, SL_SOCK_STREAM, TCP_PROTOCOL_FLAGS);
-    ASSERT_ON_ERROR1(sock, SL_SOCKET_ERROR);
+    //ASSERT_ON_ERROR1(sock, SL_SOCKET_ERROR);
+    ASSERT_ON_ERROR(sock);
+    UART_PRINT("***ENTER SSL****\n");
 
 #ifdef SECURE_SOCKET
 
@@ -146,6 +159,7 @@ int32_t TCPClient(uint8_t nb,
     sl_DeviceSet(SL_DEVICE_GENERAL, SL_DEVICE_GENERAL_DATE_TIME,
                  sizeof(SlDateTime_t), (uint8_t *)(&dateTime));
 
+    UART_PRINT("***SSL****\n");
     /* Set the following to enable Server Authentication */
     /*sl_SetSockOpt(sock,SL_SOL_SOCKET,SL_SO_SECURE_FILES_CA_FILE_NAME,
                   ROOT_CA_CERT_FILE, strlen(
@@ -172,6 +186,7 @@ int32_t TCPClient(uint8_t nb,
      */
     if(TRUE == nb)
     {
+        UART_PRINT("***nonblocking****\n");
         nonBlocking = TRUE;
         status =
             sl_SetSockOpt(sock, SL_SOL_SOCKET, SL_SO_NONBLOCKING, &nonBlocking,
@@ -179,7 +194,7 @@ int32_t TCPClient(uint8_t nb,
 
         if(status < 0)
         {
-            Display_printf(display, 0, 0,"[line:%d, error:%d] %s\n\r", __LINE__, status,
+            UART_PRINT("[line:%d, error:%d] %s\n\r", __LINE__, status,
                        SL_SOCKET_ERROR);
             sl_Close(sock);
             return(-1);
@@ -190,18 +205,20 @@ int32_t TCPClient(uint8_t nb,
 
     while(status < 0)
     {
+        UART_PRINT("***sl_Connect****\n");
         /* Calling 'sl_Connect' followed by server's
          * 'sl_Accept' would start session with
          * the TCP server. */
         status = sl_Connect(sock, sa, addrSize);
         if((status == SL_ERROR_BSD_EALREADY)&& (TRUE == nb))
         {
+            UART_PRINT("***SL_ERROR_BSD_EALREADY****\n");
             sleep(1);
             continue;
         }
         else if(status < 0)
         {
-            Display_printf(display, 0, 0,"[line:%d, error:%d] %s\n\r", __LINE__, status,
+            UART_PRINT("[line:%d, error:%d] %s\n\r", __LINE__, status,
                        SL_SOCKET_ERROR);
             sl_Close(sock);
             return(-1);
@@ -213,6 +230,7 @@ int32_t TCPClient(uint8_t nb,
 
     if(tx)
     {
+        UART_PRINT("***TX****\n");
         int32_t buflen;
         uint32_t sent_bytes = 0;
         uint32_t bytes_to_send = (numberOfPackets * BUF_LEN);
@@ -237,7 +255,7 @@ int32_t TCPClient(uint8_t nb,
             }
             else if(status < 0)
             {
-                Display_printf(display, 0, 0,"[line:%d, error:%d] %s\n\r", __LINE__, status,
+                UART_PRINT("[line:%d, error:%d] %s\n\r", __LINE__, status,
                            SL_SOCKET_ERROR);
                 sl_Close(sock);
                 return(-1);
@@ -246,7 +264,7 @@ int32_t TCPClient(uint8_t nb,
             sent_bytes += status;
         }
 
-        Display_printf(display, 0, 0,"Sent %u packets (%u bytes) successfully\n\r",
+        UART_PRINT("Sent %u packets (%u bytes) successfully\n\r",
                    i,
                    sent_bytes);
     }
@@ -264,20 +282,20 @@ int32_t TCPClient(uint8_t nb,
             }
             else if(status < 0)
             {
-                Display_printf(display, 0, 0,"[line:%d, error:%d] %s\n\r", __LINE__, status,
+                UART_PRINT("[line:%d, error:%d] %s\n\r", __LINE__, status,
                            BSD_SOCKET_ERROR);
                 sl_Close(sock);
                 return(-1);
             }
             else if(status == 0)
             {
-                Display_printf(display, 0, 0,"TCP Server closed the connection\n\r");
+                UART_PRINT("TCP Server closed the connection\n\r");
                 break;
             }
             rcvd_bytes += status;
         }
 
-        Display_printf(display, 0, 0,"Received %u packets (%u bytes) successfully\n\r",
+        UART_PRINT("Received %u packets (%u bytes) successfully\n\r",
                    (rcvd_bytes / BUF_LEN), rcvd_bytes);
     }
 
@@ -287,4 +305,66 @@ int32_t TCPClient(uint8_t nb,
     ASSERT_ON_ERROR1(status, SL_SOCKET_ERROR);
 
     return(0);
+}
+
+int32_t TCPClientTest(uint8_t nb,
+                  uint16_t portNumber,
+                  ip_t ipAddress,
+                  uint8_t ipv6,
+                  uint32_t numberOfPackets,
+                  uint8_t tx)
+{
+
+    UART_PRINT("[line:%d, error:%d] %d\n\r", __LINE__, nb, portNumber);
+    //Display_printf(display, 0, 0, "Starting send %d %d %d %d %d\n", nb, portNumber, ipv6, numberOfPackets, tx );
+    return(0);
+}
+
+/*!
+    \brief          Prints IP address.
+
+    This routine prints IP addresses in a dotted decimal
+    notation (IPv4) or colon : notation (IPv6)
+
+    \param          ip         -   Points to command line buffer.
+
+    \param          ipv6       -   Flag that sets 
+                                   if the address is IPv4 or IPv6.
+
+    \return         void
+
+ */
+void PrintIPAddress(unsigned char ipv6,
+                    void *ip)
+{
+    uint32_t        *pIPv4;
+    uint8_t         *pIPv6;
+    int32_t          i=0;
+
+    if(!ip)
+    {
+        return;
+    }
+
+    if(ipv6)
+    {
+        pIPv6 = (uint8_t*) ip;
+
+        for(i = 0; i < 14; i+=2)
+        {
+            UART_PRINT("%02x%02x:", pIPv6[i], pIPv6[i+1]);
+        }
+
+        UART_PRINT("%02x%02x", pIPv6[i], pIPv6[i+1]);
+    }
+    else
+    {
+        pIPv4 = (uint32_t*)ip;
+        UART_PRINT("\r %d.%d.%d.%d", 
+                    SL_IPV4_BYTE(*pIPv4,3), 
+                    SL_IPV4_BYTE(*pIPv4,2),
+                    SL_IPV4_BYTE(*pIPv4,1),
+                    SL_IPV4_BYTE(*pIPv4,0));
+    }
+    return;
 }

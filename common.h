@@ -75,7 +75,7 @@ extern "C"
     { \
         if(error_code < 0) \
         { \
-            Display_printf(display, 0, 0, "Error code %d \n", error_code); \
+            UART_PRINT("Error code %d \n", error_code); \
             return error_code; \
         } \
     }
@@ -88,8 +88,9 @@ extern "C"
                 return -1;\
             }\
         }
-#define SHOW_WARNING(ret, errortype)        Display_printf(display, 0, 0, \
+#define SHOW_WARNING(ret, errortype)        UART_PRINT( \
         "\n\r[line:%d, error code:%d] %s\n\r", __LINE__, ret, errortype);
+
 
 typedef union
 {

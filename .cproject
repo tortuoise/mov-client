@@ -76,7 +76,7 @@
 									<listOptionValue builtIn="false" value="third_party/spiffs/lib/ccs/m4/spiffs.a"/>
 									<listOptionValue builtIn="false" value="ti/drivers/lib/drivers_cc32xx.aem4"/>
 									<listOptionValue builtIn="false" value="third_party/fatfs/lib/ccs/m4/fatfs.a"/>
-									<listOptionValue builtIn="false" srcPrefixMapping="" srcRootPath="" value="ccs/rtos/simplelink.a"/>
+									<listOptionValue builtIn="false" value="ccs/rtos/simplelink.a"/>
 									<listOptionValue builtIn="false" value="ti/dpl/lib/dpl_cc32xx.aem4"/>
 									<listOptionValue builtIn="false" value="${GENERATED_LIBRARIES}"/>
 									<listOptionValue builtIn="false" value="ti/devices/cc32xx/driverlib/ccs/Release/driverlib.a"/>
