@@ -261,7 +261,7 @@ void *mainThread(void *arg0)
     ip_t dest;
     //memset(&dest, 0x0, sizeof(dest));
     dest.ipv4 = DEST_IP_ADDR;
-    uint8_t nb = 1;
+    uint8_t nb = 1; // doesn't seem to make a difference.
     int16_t port = 38979;
     uint32_t numPackets = 1;
     ret = TCPClient(nb, port, dest, FALSE /*ipv6*/, numPackets, TRUE);

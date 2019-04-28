@@ -1,10 +1,13 @@
 /* Standard includes */
 #include <stdlib.h>
 #include <ti/display/Display.h>
+#include <time.h>
 
 #include "socket_cmd.h"
 #include "common.h"
 #include "empty.h"
+#include "cJSON.h"
+
 #define SECURE_SOCKET
 //#define CLIENT_AUTHENTICATION
 
@@ -15,9 +18,9 @@
 #define TRUSTED_CERT_FILE     "dummy-trusted-cert"
 #define TRUSTED_CERT_CHAIN    "trusted-chain.pem"
 
-#define DEVICE_YEAR                 (2017)
-#define DEVICE_MONTH                (4)
-#define DEVICE_DATE                 (5)
+#define DEVICE_YEAR                 (2018)
+#define DEVICE_MONTH                (3)
+#define DEVICE_DATE                 (30)
 
 #define BUF_LEN                (MAX_BUF_SIZE - 20)
 #else
@@ -91,7 +94,8 @@ int32_t TCPClient(uint8_t nb,
     UART_PRINT("\r Starting send \n");
 
     /* clear the global data buffer */
-    memset(app_CB.gDataBuffer.nwData, 0x0, MAX_BUF_SIZE);
+    //memset(app_CB.gDataBuffer.nwData, 0x0, MAX_BUF_SIZE);
+    memset(&app_CB.gDataBuffer.nwData, 0x0 , sizeof(app_CB.gDataBuffer));
 
     /* filling the buffer with data */
     for(i = 0; i < MAX_BUF_SIZE; i++)
@@ -99,7 +103,50 @@ int32_t TCPClient(uint8_t nb,
         app_CB.gDataBuffer.nwData[i] = (char)(i % 10);
     }
 
-    UART_PRINT("\r Filled buffer \n");
+    /* for response from server*/
+    uint8_t recd_data[MAX_BUF_SIZE];
+
+    /* prepare json packet*/
+    cJSON *loco = NULL;
+    struct timespec abstime;
+    abstime.tv_sec = 0;
+    abstime.tv_nsec = 0;
+    clock_gettime(CLOCK_REALTIME, &abstime);
+    
+    loco = cJSON_CreateObject();
+    cJSON_AddNumberToObject(loco, "id", 43672934);
+    cJSON_AddNumberToObject(loco, "timestamp", abstime.tv_sec);
+    cJSON_AddBoolToObject(loco, "status", true);
+    cJSON_AddNumberToObject(loco, "voltage", 240);
+    cJSON_AddNumberToObject(loco, "freq", 50.3);
+    cJSON_AddNumberToObject(loco, "lat", 13.4538);
+    cJSON_AddNumberToObject(loco, "lng", 77.6283);
+
+    char *out = NULL;
+    out = cJSON_Print(loco);
+    char *buf = NULL;
+    size_t len = 0;
+    len = strlen(out) + 5;
+    buf = (char*)malloc(len);
+    if (buf == NULL)
+    {
+        UART_PRINT("Failed to allocate memory.\n");
+        return -1;
+    }
+    /* Print to buffer */
+    if (!cJSON_PrintPreallocated(loco, buf, (int)len, 1)) {
+        UART_PRINT("cJSON_PrintPreallocated failed!\n");
+        if (strcmp(out, buf) != 0) {
+            UART_PRINT("cJSON_PrintPreallocated not the same as cJSON_Print!\n");
+            UART_PRINT("cJSON_Print result:\n%s\n", out);
+            UART_PRINT("cJSON_PrintPreallocated result:\n%s\n", buf);
+        }
+        free(out);
+        free(buf);
+        return -1;
+    }
+    /* end prepare json packet*/
+
     if(ipv6)
     {
         sAddr.in6.sin6_family = SL_AF_INET6;
@@ -134,20 +181,20 @@ int32_t TCPClient(uint8_t nb,
     }
 
     if (sa == NULL) {
-        UART_PRINT("\r ***sa NULL****\n");
+        UART_PRINT("\rsa NULL****\n");
     }
     else {
-        UART_PRINT("\r sa !NULL  %d \n", sa->sa_family);
+        UART_PRINT("\rsa !NULL  %d \n", sa->sa_family);
     }
     PrintIPAddress(FALSE, (void*)&ipAddress.ipv4);
-    UART_PRINT("\r***Setting up socket****\n");
+    UART_PRINT("\rSetting up socket****\n");
     /* Get socket descriptor - this would be the
      * socket descriptor for the TCP session.
      */
     sock = sl_Socket(sa->sa_family, SL_SOCK_STREAM, TCP_PROTOCOL_FLAGS);
     //ASSERT_ON_ERROR1(sock, SL_SOCKET_ERROR);
     ASSERT_ON_ERROR(sock);
-    UART_PRINT("***ENTER SSL****\n");
+    UART_PRINT("***\rENTER SSL****\n");
 
 #ifdef SECURE_SOCKET
 
@@ -156,14 +203,18 @@ int32_t TCPClient(uint8_t nb,
     dateTime.tm_mon = DEVICE_MONTH;
     dateTime.tm_year = DEVICE_YEAR;
 
-    sl_DeviceSet(SL_DEVICE_GENERAL, SL_DEVICE_GENERAL_DATE_TIME,
-                 sizeof(SlDateTime_t), (uint8_t *)(&dateTime));
+    sl_DeviceSet(SL_DEVICE_GENERAL, SL_DEVICE_GENERAL_DATE_TIME, sizeof(SlDateTime_t), (uint8_t *)(&dateTime));
 
-    UART_PRINT("***SSL****\n");
+    UART_PRINT("\r***SSL****\n");
     /* Set the following to enable Server Authentication */
     /*sl_SetSockOpt(sock,SL_SOL_SOCKET,SL_SO_SECURE_FILES_CA_FILE_NAME,
                   ROOT_CA_CERT_FILE, strlen(
                       ROOT_CA_CERT_FILE));*/
+    // Following mask doesn't seem to make a difference
+    /*
+    SlSockSecureMask_t mask;
+    mask.SecureMask = SL_SEC_MASK_TLS_RSA_WITH_AES_256_CBC_SHA | SL_SEC_MASK_TLS_RSA_WITH_AES_256_CBC_SHA;
+    sl_SetSockOpt(sock,SL_SOL_SOCKET,SL_SO_SECURE_MASK,&mask,sizeof(SlSockSecureMask_t));*/
 
 #ifdef CLIENT_AUTHENTICATION
     /* Set the following to pass Client Authentication */
@@ -186,7 +237,7 @@ int32_t TCPClient(uint8_t nb,
      */
     if(TRUE == nb)
     {
-        UART_PRINT("***nonblocking****\n");
+        UART_PRINT("\r***nonblocking****\n");
         nonBlocking = TRUE;
         status =
             sl_SetSockOpt(sock, SL_SOL_SOCKET, SL_SO_NONBLOCKING, &nonBlocking,
@@ -194,7 +245,7 @@ int32_t TCPClient(uint8_t nb,
 
         if(status < 0)
         {
-            UART_PRINT("[line:%d, error:%d] %s\n\r", __LINE__, status,
+            UART_PRINT("\r[line:%d, error:%d] %s\n\r", __LINE__, status,
                        SL_SOCKET_ERROR);
             sl_Close(sock);
             return(-1);
@@ -220,8 +271,12 @@ int32_t TCPClient(uint8_t nb,
         {
             UART_PRINT("[line:%d, error:%d] %s\n\r", __LINE__, status,
                        SL_SOCKET_ERROR);
-            sl_Close(sock);
-            return(-1);
+            /*if ((int)status == -453) {
+                continue; // ignore SL_ERROR_BSD_ESECSNOVERIFY error because we're not verifying server
+            } else {
+                sl_Close(sock);
+                return(-1);
+            }*/
         }
         break;
     }
@@ -230,12 +285,11 @@ int32_t TCPClient(uint8_t nb,
 
     if(tx)
     {
-        UART_PRINT("***TX****\n");
         int32_t buflen;
         uint32_t sent_bytes = 0;
-        uint32_t bytes_to_send = (numberOfPackets * BUF_LEN);
+        uint32_t bytes_to_send = (numberOfPackets * len);
 
-        while(sent_bytes < bytes_to_send)
+        while(sent_bytes == 0)
         {
             if(bytes_to_send - sent_bytes >= BUF_LEN)
             {
@@ -247,7 +301,8 @@ int32_t TCPClient(uint8_t nb,
             }
 
             /* Send packets to the server */
-            status = sl_Send(sock, &app_CB.gDataBuffer.nwData, buflen, 0);
+            UART_PRINT("Sending packet: %s \n", *buf);
+            status = sl_Send(sock, buf, len, 0);
             if((status == SL_ERROR_BSD_EAGAIN) && (TRUE == nb))
             {
                 sleep(1);
@@ -282,8 +337,7 @@ int32_t TCPClient(uint8_t nb,
             }
             else if(status < 0)
             {
-                UART_PRINT("[line:%d, error:%d] %s\n\r", __LINE__, status,
-                           BSD_SOCKET_ERROR);
+                UART_PRINT("[line:%d, error:%d] %s\n\r", __LINE__, status, BSD_SOCKET_ERROR);
                 sl_Close(sock);
                 return(-1);
             }
@@ -295,15 +349,50 @@ int32_t TCPClient(uint8_t nb,
             rcvd_bytes += status;
         }
 
-        UART_PRINT("Received %u packets (%u bytes) successfully\n\r",
-                   (rcvd_bytes / BUF_LEN), rcvd_bytes);
+        UART_PRINT("Received %u packets (%u bytes) successfully\n\r", (rcvd_bytes / BUF_LEN), rcvd_bytes);
     }
 
+    if(tx) //receive thank you response
+    {
+        uint32_t rcvd_bytes = 0;
+
+        while(rcvd_bytes == 0 )
+        {
+            status = sl_Recv(sock, &recd_data, MAX_BUF_SIZE, 0);
+            if((status == SL_ERROR_BSD_EAGAIN) && (TRUE == nb))
+            {
+                sleep(1);
+                continue;
+            }
+            else if(status < 0)
+            {
+                UART_PRINT("[line:%d, error:%d] %s\n\r", __LINE__, status, BSD_SOCKET_ERROR);
+                sl_Close(sock);
+                return -1;
+            }
+            else if (status == 0)
+            {
+                UART_PRINT("TCP Server closed the connection\n\r");
+                break;
+            }
+            rcvd_bytes += status;
+        }
+
+        UART_PRINT("Received %u packets (%u bytes) successfully\n\r",(rcvd_bytes/BUF_LEN), rcvd_bytes);
+        uint8_t j = 0;
+        for(j = 0; j < rcvd_bytes; ++j) {
+            UART_PRINT("%c", recd_data[j]);
+        }
+        UART_PRINT("\n");
+    }
     /* Calling 'close' with the socket descriptor,
      * once operation is finished. */
     status = sl_Close(sock);
     ASSERT_ON_ERROR1(status, SL_SOCKET_ERROR);
 
+    free(out);
+    free(buf);
+    cJSON_Delete(loco);
     return(0);
 }
 
