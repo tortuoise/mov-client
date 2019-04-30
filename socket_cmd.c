@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <ti/display/Display.h>
 #include <time.h>
+#include <pthread.h>
 
 #include "socket_cmd.h"
 #include "common.h"
@@ -27,6 +28,9 @@
 #define TCP_PROTOCOL_FLAGS      0
 #define BUF_LEN                (MAX_BUF_SIZE)
 #endif
+
+extern volatile float voltage;
+extern pthread_mutex_t voltageMutex;
 
 int32_t TCPClient(uint8_t nb,
                   uint16_t portNumber,
@@ -117,7 +121,9 @@ int32_t TCPClient(uint8_t nb,
     cJSON_AddNumberToObject(loco, "id", 43672934);
     cJSON_AddNumberToObject(loco, "timestamp", abstime.tv_sec);
     cJSON_AddBoolToObject(loco, "status", true);
-    cJSON_AddNumberToObject(loco, "voltage", 240);
+    pthread_mutex_lock(&voltageMutex);
+    cJSON_AddNumberToObject(loco, "voltage", voltage);
+    pthread_mutex_unlock(&voltageMutex);
     cJSON_AddNumberToObject(loco, "freq", 50.3);
     cJSON_AddNumberToObject(loco, "lat", 13.4538);
     cJSON_AddNumberToObject(loco, "lng", 77.6283);

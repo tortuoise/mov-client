@@ -86,6 +86,7 @@ typedef struct _PowerMeasure_ControlBlock_t_
 int32_t wlanConnect(void);
 int32_t initAppVariables();
 
+extern void *adcThread(void *arg0);
 pthread_t           spawn_thread = (pthread_t)NULL;
 uint16_t adcValue1[ADC_SAMPLE_COUNT];
 uint32_t adcValue1MicroVolt[ADC_SAMPLE_COUNT];
@@ -254,12 +255,12 @@ void *mainThread(void *arg0)
         while (1);
     }
 
-    priParam.sched_priority = 1;
+    priParam.sched_priority = 2;
     pthread_attr_setschedparam(&attrs, &priParam);
 
     //Display_printf(display, 0, 0, "Starting adc thread \n");
     /* Create threadFxn1 thread */
-    retf = pthread_create(&thread1, &attrs, threadFxn1, NULL);
+    retf = pthread_create(&thread1, &attrs, adcThread /*threadFxn1*/, NULL);
     if (retf != 0) {
         /* pthread_create() failed */
         while (1);
