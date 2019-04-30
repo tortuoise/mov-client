@@ -36,6 +36,8 @@
 
 /* For usleep() */
 #include <unistd.h>
+#include <stdlib.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -56,6 +58,7 @@
 #include "Board.h"
 #include "common.h"
 #include "empty.h"
+#include "time.h"
 //#include "uart_term.h"
 
 /* ADC sample count */
@@ -67,7 +70,7 @@
 #define SL_STOP_TIMEOUT             (200)
 
 #define FRAME_LENGTH                (1000)
-#define THREADSTACKSIZE   (768)
+#define THREADSTACKSIZE   (1024)//(768)
 #define DEST_IP_ADDR                SL_IPV4_VAL(192,168,1,100)
 
 /* Control block definition */
@@ -88,6 +91,7 @@ uint16_t adcValue1[ADC_SAMPLE_COUNT];
 uint32_t adcValue1MicroVolt[ADC_SAMPLE_COUNT];
 PowerMeasure_ControlBlock   PowerMeasure_CB;
 appControlBlock     app_CB;
+pthread_mutex_t voltageMutex;
 /*
  *  ======== threadFxn1 ========
  *  Open a ADC handle and get an array of sampling results after
@@ -146,7 +150,7 @@ void *threadFxn1(void *arg0)
             //Display_printf(display, 0, 0, "TCPClient failed");
         } */
         UART_PRINT("\r\n ***SLEEPING**** %d %d \r\n", ADC_SAMPLE_COUNT, i);
-	sleep(6);
+	usleep(10000000); // 10 seconds
         UART_PRINT("\r\n ***AWAKE**** %d %d \r\n", ADC_SAMPLE_COUNT, i);
     }
 
@@ -161,6 +165,7 @@ void *mainThread(void *arg0)
 {
     /* 1 second delay */
     uint32_t time = 1;
+    struct timespec     ts = {0};
     int32_t             status = 0;
 
     pthread_t           thread1;
@@ -168,11 +173,12 @@ void *mainThread(void *arg0)
     pthread_attr_t      attrs;
     struct sched_param  priParam;
     int                 retc;
+    int                 retf;
     int                 detachState;
     UART_Handle         uart;
 
     /* Call board init functions */
-    Board_initGeneral();
+    //Board_initGeneral();
     /* Call driver init functions */
     GPIO_init();
     //Display_init();
@@ -188,8 +194,17 @@ void *mainThread(void *arg0)
         /* Failed to open display driver */
     //    while (1);
     //}
+    /* initilize the realtime clock */
+    clock_settime(CLOCK_REALTIME, &ts);
+    /* Create a mutex that will protect voltage variable */
+    retc = pthread_mutex_init(&voltageMutex, NULL);
+    if (retc != 0) {
+        /* pthread_mutex_init() failed */
+        UART_PRINT("\r locomov - Couldn't create mutex  - %d\n", retc);
+        while (1) {}
+    }
 
-    if (uart = NULL) {
+    if (uart == NULL) {
         //Display_printf(display, 0, 0, "UART NULL \n");
         while(1);
     }
@@ -210,19 +225,46 @@ void *mainThread(void *arg0)
     /* Start the SimpleLink Host */
     pthread_attr_init(&pAttrs_spawn);
     priParam.sched_priority = SPAWN_TASK_PRIORITY;
-    status = pthread_attr_setschedparam(&pAttrs_spawn, &priParam);
-    status |= pthread_attr_setstacksize(&pAttrs_spawn, TASKSTACKSIZE);
+    retc = pthread_attr_setschedparam(&pAttrs_spawn, &priParam);
+    retc |= pthread_attr_setstacksize(&pAttrs_spawn, TASKSTACKSIZE);
 
-    status = pthread_create(&spawn_thread, &pAttrs_spawn, sl_Task, NULL);
+    retc = pthread_create(&spawn_thread, &pAttrs_spawn, sl_Task, NULL);
 
-    if(status != 0)
+    if(retc != 0)
     {
         //Display_printf(display,0,0,"could not create simpleLink task\n\r");
         UART_PRINT("\r Could not create simpleLink task\n\r");
         LOOP_FOREVER();
     }
 
-    //Display_printf(display, 0, 0, "sl_WifiConfig \n");
+    /* Create application thread */
+    pthread_attr_init(&attrs);
+
+    detachState = PTHREAD_CREATE_DETACHED;
+    /* Set priority and stack size attributes */
+    retf = pthread_attr_setdetachstate(&attrs, detachState);
+    if (retf != 0) {
+        /* pthread_attr_setdetachstate() failed */
+        while (1);
+    }
+
+    retf |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
+    if (retf != 0) {
+        /* pthread_attr_setstacksize() failed */
+        while (1);
+    }
+
+    priParam.sched_priority = 1;
+    pthread_attr_setschedparam(&attrs, &priParam);
+
+    //Display_printf(display, 0, 0, "Starting adc thread \n");
+    /* Create threadFxn1 thread */
+    retf = pthread_create(&thread1, &attrs, threadFxn1, NULL);
+    if (retf != 0) {
+        /* pthread_create() failed */
+        while (1);
+    }
+
     status = sl_WifiConfig();
     if(status < 0)
     {
@@ -253,6 +295,7 @@ void *mainThread(void *arg0)
     }
 
     status = sl_Start(0,0,0);
+    sleep(5);
     status = wlanConnect();
     if (status < 0) {
         UART_PRINT("\r\n wlanConnect error \r\n");
@@ -264,45 +307,21 @@ void *mainThread(void *arg0)
     uint8_t nb = 1; // doesn't seem to make a difference.
     int16_t port = 38979;
     uint32_t numPackets = 1;
-    ret = TCPClient(nb, port, dest, FALSE /*ipv6*/, numPackets, TRUE);
-    if (ret != 0) {
-        UART_PRINT("[line:%d, error:%d] \n\r", __LINE__, ret);
-        //Display_printf(display, 0, 0, "TCPClient failed");
-    } 
 
-    /* Create application threads */
-    pthread_attr_init(&attrs);
-
-    detachState = PTHREAD_CREATE_DETACHED;
-    /* Set priority and stack size attributes */
-    retc = pthread_attr_setdetachstate(&attrs, detachState);
-    if (retc != 0) {
-        /* pthread_attr_setdetachstate() failed */
-        while (1);
-    }
-
-    retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
-    if (retc != 0) {
-        /* pthread_attr_setstacksize() failed */
-        while (1);
-    }
-
-    priParam.sched_priority = 1;
-    pthread_attr_setschedparam(&attrs, &priParam);
-
-    //Display_printf(display, 0, 0, "Starting adc thread \n");
-    /* Create threadFxn1 thread */
-    retc = pthread_create(&thread1, &attrs, threadFxn1, (void* )0);
-    if (retc != 0) {
-        /* pthread_create() failed */
-        while (1);
-    }
 
     /*while (1) {
         sleep(time);
         GPIO_toggle(Board_GPIO_LED0);
     }*/
     //Display_printf(display, 0, 0, "Returning \n");
+    while(1){
+        ret = TCPClient(nb, port, dest, FALSE /*ipv6*/, numPackets, TRUE);
+        if (ret != 0) {
+            UART_PRINT("[line:%d, error:%d] \n\r", __LINE__, ret);
+            //Display_printf(display, 0, 0, "TCPClient failed");
+        } 
+        sleep(30);
+    }
     return (NULL);
 }
 
