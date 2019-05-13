@@ -14,9 +14,9 @@
 
 #ifdef SECURE_SOCKET
 #define TCP_PROTOCOL_FLAGS    SL_SEC_SOCKET
-#define ROOT_CA_CERT_FILE     "dummy-root-ca-cert"
-#define PRIVATE_KEY_FILE      "dummy-trusted-cert-key"
-#define TRUSTED_CERT_FILE     "dummy-trusted-cert"
+#define ROOT_CA_CERT_FILE     "dst root ca x3" //"dummy-root-ca-cert"
+#define PRIVATE_KEY_FILE      "b00m-trusted-cert-key" //"dummy-trusted-cert-key"
+#define TRUSTED_CERT_FILE     "b00m-trusted-cert" //"dummy-trusted-cert"
 #define TRUSTED_CERT_CHAIN    "trusted-chain.pem"
 
 #define DEVICE_YEAR                 (2018)
@@ -213,14 +213,13 @@ int32_t TCPClient(uint8_t nb,
 
     UART_PRINT("\r***SSL****\n");
     /* Set the following to enable Server Authentication */
-    /*sl_SetSockOpt(sock,SL_SOL_SOCKET,SL_SO_SECURE_FILES_CA_FILE_NAME,
-                  ROOT_CA_CERT_FILE, strlen(
-                      ROOT_CA_CERT_FILE));*/
+    sl_SetSockOpt(sock,SL_SOL_SOCKET,SL_SO_SECURE_FILES_CA_FILE_NAME,
+                  ROOT_CA_CERT_FILE, strlen(ROOT_CA_CERT_FILE));
     // Following mask doesn't seem to make a difference
-    /*
+    
     SlSockSecureMask_t mask;
     mask.SecureMask = SL_SEC_MASK_TLS_RSA_WITH_AES_256_CBC_SHA | SL_SEC_MASK_TLS_RSA_WITH_AES_256_CBC_SHA;
-    sl_SetSockOpt(sock,SL_SOL_SOCKET,SL_SO_SECURE_MASK,&mask,sizeof(SlSockSecureMask_t));*/
+    sl_SetSockOpt(sock,SL_SOL_SOCKET,SL_SO_SECURE_MASK,&mask,sizeof(SlSockSecureMask_t));
 
 #ifdef CLIENT_AUTHENTICATION
     /* Set the following to pass Client Authentication */

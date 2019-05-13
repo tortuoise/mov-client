@@ -71,8 +71,9 @@
 
 #define FRAME_LENGTH                (1000)
 #define THREADSTACKSIZE   (1024)//(768)
-#define DEST_IP_ADDR                SL_IPV4_VAL(192,168,1,100)
-
+//#define DEST_IP_ADDR                SL_IPV4_VAL(192,168,1,100)
+//#define DEST_IP_ADDR                SL_IPV4_VAL(35,246,126,109)
+#define DEST_IP_ADDR                SL_IPV4_VAL(35,246,92,88)
 /* Control block definition */
 typedef struct _PowerMeasure_ControlBlock_t_
 {
@@ -577,6 +578,12 @@ void SimpleLinkNetAppEventHandler(SlNetAppEvent_t *pNetAppEvent)
         }
         break;
 
+        case SL_NETAPP_EVENT_DHCP_IPV4_ACQUIRE_TIMEOUT:
+        {
+            UART_PRINT("\r [NETAPP EVENT] IP Acquire timeout [0x%x] \n\r",
+                       pNetAppEvent->Id);
+        }
+        break;
         default:
         {
             UART_PRINT("\r [NETAPP EVENT] Unexpected event [0x%x] \n\r",

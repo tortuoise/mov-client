@@ -49,10 +49,10 @@ extern "C"
 // Values for below macros shall be modified as per access-point(AP) properties
 // SimpleLink device will connect to following AP when application is executed
 //
-#define SSID_NAME           "M0V"    /* AP SSID */
+#define SSID_NAME           "Beautiful Offices WiFi"//"Honor 10"//"M0V"    /* AP SSID */
                                          /* Security type (OPEN or WEP or WPA*/
 #define SECURITY_TYPE       SL_WLAN_SEC_TYPE_WPA_WPA2 
-#define SECURITY_KEY        "53606808"              /* Password of the secured AP */
+#define SECURITY_KEY        "pinkflowers"//"d0a9d424fdf7" //"53606808"              /* Password of the secured AP */
 /* Power Measurement Error Codes */
 
 /*!
